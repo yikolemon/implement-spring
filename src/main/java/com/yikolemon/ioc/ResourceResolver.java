@@ -9,9 +9,7 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -49,9 +47,8 @@ public class ResourceResolver {
             String path = removeTrailingSlash(uriToString(uri));
             //jar包下扫描
             if (path.startsWith("jar:")){
-                //TODO 暂时不处理
-                res.addAll(scanFile(null, mapper));
-            } else if (path.startsWith("file:/")){
+                res.addAll(scanJar(packagePath, uri, mapper));
+            } else if (path.startsWith("file:")){
                 //普通目录下扫描
                 res.addAll(scanFile(uri, mapper));
             }
@@ -59,19 +56,41 @@ public class ResourceResolver {
         return res;
     }
 
+    /**
+     *
+     * @param packagePath 包路径 /cn/hutool
+     * @param uri classLoader查找出的资源的路径,在jar中的形式为/xxx/xxx/hutool.jar/cn/hutool
+     * @param mapper 函数接口
+     * @return 过滤后资源
+     * @param <T> 过滤后资源对象泛型
+     */
+    private <T> List<T> scanJar(String packagePath, URI uri, Function<Resource, T> mapper) throws IOException {
+        Path basePath = jarUriToPath(packagePath, uri);
+        return scan(ResourceType.JAR, basePath, mapper);
+    }
+
+
     private <T> List<T> scanFile(URI uri, Function<Resource, T> mapper) {
         // 根据路径递归扫描目录下的资源
-        Path startPath = Paths.get(uri);
-        if (!Files.exists(startPath) || !Files.isDirectory(startPath)) {
-            return Collections.emptyList();
+        Path basePath = Paths.get(uri);
+        return scan(ResourceType.FILE, basePath, mapper);
+    }
+
+    private  <T> List<T> scan(ResourceType resourceType, Path basePath, Function<Resource, T> mapper){
+        if (ResourceType.FILE == resourceType){
+            if (!Files.exists(basePath) || !Files.isDirectory(basePath)) {
+                return Collections.emptyList();
+            }
         }
         // 使用 NIO 的 Files.walk() 遍历目录
-        try (Stream<Path> walk = Files.walk(startPath)){
+        try {
+            Stream<Path> walk = Files.walk(basePath);
             // 使用 Files.walk() 递归遍历目录
             return walk.filter(Files::isRegularFile)  // 只处理文件
                     .map(filePath -> {
                         // 构造 Resource 对象，可以使用 filePath 的路径和名称
-                        Resource resource = new Resource(filePath.toString(), filePath.getFileName().toString());
+                        Resource resource = new Resource(filePath,
+                                filePath.getFileName().toString(), resourceType);
                         // 使用 mapper 将资源转换成目标类型 T
                         return mapper.apply(resource);
                     })
@@ -79,6 +98,18 @@ public class ResourceResolver {
         } catch (IOException e) {
             e.printStackTrace();
             return Collections.emptyList();
+        }
+    }
+
+    /**
+     *
+     * @param basePackagePath 包路径 /cn/hutool
+     * @param jarUri classLoader查找出的资源的路径,在jar中的形式为/xxx/xxx/hutool.jar/cn/hutool
+     * @return ZipPath
+     */
+    Path jarUriToPath(String basePackagePath, URI jarUri) throws IOException {
+        try(FileSystem fileSystem = FileSystems.newFileSystem(jarUri, Collections.emptyMap())){
+            return fileSystem.getPath(basePackagePath);
         }
     }
 
@@ -108,7 +139,7 @@ public class ResourceResolver {
     }
 
     public static void main(String[] args) {
-        ResourceResolver resolver = new ResourceResolver("com.yikolemon");
+        ResourceResolver resolver = new ResourceResolver("cn.hutool");
         List<String> classList = resolver.scan(resource -> {
             String name = resource.getName();
             if (name.endsWith(".class")) {
@@ -118,5 +149,6 @@ public class ResourceResolver {
             //非class文件
             return null;
         });
+        System.out.println(classList);
     }
 }

@@ -4,6 +4,8 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.nio.file.Path;
+
 /**
  * @author duanfuqiang
  * @date 2024/12/5
@@ -13,7 +15,10 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class Resource {
 
-    private String path;
+    private Path path;
 
     private String name;
+
+    private ResourceType type;
+
 }
