@@ -65,8 +65,17 @@ public class ResourceResolver {
      * @param <T> 过滤后资源对象泛型
      */
     private <T> List<T> scanJar(String packagePath, URI uri, Function<Resource, T> mapper) throws IOException {
-        Path basePath = jarUriToPath(packagePath, uri);
-        return scan(ResourceType.JAR, basePath, mapper);
+        FileSystem fileSystem = null;
+        try{
+            fileSystem = jarUriToPath(uri);
+            Path basePath = fileSystem.getPath(packagePath);
+            return scan(ResourceType.JAR, basePath, mapper);
+        }finally {
+            if (fileSystem != null && fileSystem.isOpen()){
+                fileSystem.close();
+            }
+        }
+
     }
 
 
@@ -103,14 +112,11 @@ public class ResourceResolver {
 
     /**
      *
-     * @param basePackagePath 包路径 /cn/hutool
      * @param jarUri classLoader查找出的资源的路径,在jar中的形式为/xxx/xxx/hutool.jar/cn/hutool
      * @return ZipPath
      */
-    Path jarUriToPath(String basePackagePath, URI jarUri) throws IOException {
-        try(FileSystem fileSystem = FileSystems.newFileSystem(jarUri, Collections.emptyMap())){
-            return fileSystem.getPath(basePackagePath);
-        }
+    FileSystem jarUriToPath(URI jarUri) throws IOException {
+        return FileSystems.newFileSystem(jarUri, Collections.emptyMap());
     }
 
     /**
