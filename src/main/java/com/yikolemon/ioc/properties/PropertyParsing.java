@@ -49,7 +49,8 @@ public class PropertyParsing {
                 this.defaultVal = defaultVal;
             }
         }
-
     }
+
+
 
 }

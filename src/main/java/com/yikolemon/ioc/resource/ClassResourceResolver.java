@@ -23,7 +23,7 @@ import java.util.stream.Stream;
  * @date 2024/12/5
  **/
 @AllArgsConstructor
-public class ResourceResolver {
+public class ClassResourceResolver {
 
     private String basePackage;
 
@@ -143,7 +143,7 @@ public class ResourceResolver {
     }
 
     public static void main(String[] args) {
-        ResourceResolver resolver = new ResourceResolver("com.yikolemon");
+        ClassResourceResolver resolver = new ClassResourceResolver("com.yikolemon");
         List<String> classList = resolver.scan(resource -> {
             String name = resource.getName();
             if (name.endsWith(".class")) {
