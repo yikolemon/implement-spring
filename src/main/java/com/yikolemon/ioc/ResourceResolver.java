@@ -75,7 +75,6 @@ public class ResourceResolver {
                 fileSystem.close();
             }
         }
-
     }
 
 
@@ -92,8 +91,7 @@ public class ResourceResolver {
             }
         }
         // 使用 NIO 的 Files.walk() 遍历目录
-        try {
-            Stream<Path> walk = Files.walk(basePath);
+        try (Stream<Path> walk  = Files.walk(basePath)){
             // 使用 Files.walk() 递归遍历目录
             return walk.filter(Files::isRegularFile)  // 只处理文件
                     .map(filePath -> {
@@ -145,7 +143,7 @@ public class ResourceResolver {
     }
 
     public static void main(String[] args) {
-        ResourceResolver resolver = new ResourceResolver("cn.hutool");
+        ResourceResolver resolver = new ResourceResolver("com.yikolemon");
         List<String> classList = resolver.scan(resource -> {
             String name = resource.getName();
             if (name.endsWith(".class")) {
@@ -155,6 +153,8 @@ public class ResourceResolver {
             //非class文件
             return null;
         });
-        System.out.println(classList);
+        for (String className : classList) {
+            System.out.println(className);
+        }
     }
 }
