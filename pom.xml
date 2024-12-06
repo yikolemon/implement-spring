@@ -16,6 +16,12 @@
 
   <dependencies>
 
+    <dependency>
+      <groupId>org.apache.commons</groupId>
+      <artifactId>commons-lang3</artifactId>
+      <version>3.12.0</version> <!-- 或者使用最新的版本 -->
+    </dependency>
+
     <!-- lombok -->
     <dependency>
       <groupId>org.projectlombok</groupId>

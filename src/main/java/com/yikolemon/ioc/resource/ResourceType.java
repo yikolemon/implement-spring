@@ -1,4 +1,4 @@
-package com.yikolemon.ioc;
+package com.yikolemon.ioc.resource;
 
 public enum ResourceType {
 

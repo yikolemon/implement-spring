@@ -1,4 +1,4 @@
-package com.yikolemon.ioc;
+package com.yikolemon.ioc.resource;
 
 import lombok.AllArgsConstructor;
 
