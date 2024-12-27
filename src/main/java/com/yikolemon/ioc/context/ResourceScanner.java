@@ -176,7 +176,4 @@ public class ResourceScanner {
         return order == null ? Integer.MAX_VALUE : order.value();
     }
 
-
-
-
 }

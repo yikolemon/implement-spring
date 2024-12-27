@@ -2,7 +2,6 @@ package com.yikolemon.ioc.context;
 
 import com.sun.istack.internal.Nullable;
 import com.yikolemon.ioc.properties.PropertyResolver;
-import com.yikolemon.ioc.resource.ResourceResolver;
 
 import java.util.List;
 import java.util.Map;
@@ -18,6 +17,17 @@ public class AnnotationConfigApplicationContext {
     Map<String, BeanDefinition> nameToBeans;
 
     Map<Class<?>, BeanDefinition> clazzToBeans;
+
+    Set<String> creatingBeanNames;
+
+    public Object createBeanAsEarlySingleton(BeanDefinition def){
+        if (!this.creatingBeanNames.add(def.getName())){
+            //检测到重复创建Bean导致的循环依赖
+            throw new RuntimeException("repeat create error");
+        }
+        //
+    }
+
 
     public AnnotationConfigApplicationContext(Class<?> configClazz, PropertyResolver propertyResolver) {
         ResourceScanner resourceScanner = new ResourceScanner();
