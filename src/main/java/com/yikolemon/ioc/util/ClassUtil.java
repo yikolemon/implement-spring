@@ -1,16 +1,41 @@
 package com.yikolemon.ioc.util;
 
+import com.yikolemon.ioc.annotation.Bean;
 import com.yikolemon.ioc.annotation.Component;
 import org.apache.commons.lang3.StringUtils;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * @author duanfuqiang
  * @date 2024/12/26
  **/
 public class ClassUtil {
+
+    public static Method findAnnoMethod(Class<?> target, Class<? extends Annotation> annoClazz){
+        Method[] methods = target.getMethods();
+        List<Method> annoMethods = Arrays.stream(methods)
+                .filter(method -> method.isAnnotationPresent(annoClazz))
+                .peek(method -> {
+                    if (method.getParameterCount() > 0){
+                        throw new RuntimeException("multiple parameters exist in method");
+                    }
+                })
+                .collect(Collectors.toList());
+
+        if (annoMethods.isEmpty()){
+            return null;
+        }else if (annoMethods.size() >= 2){
+            throw new RuntimeException("Multiple methods exist");
+        }else{
+            return annoMethods.get(0);
+        }
+    }
 
 
     /**
@@ -57,10 +82,19 @@ public class ClassUtil {
         return name;
     }
 
+    public static String getBeanName(Method method){
+        Bean beanAnno = method.getAnnotation(Bean.class);
+        if (beanAnno == null || StringUtils.isEmpty(beanAnno.value())){
+            return Character.toLowerCase(method.getName().charAt(0)) + method.getName().substring(1);
+        }else{
+            return beanAnno.value();
+        }
+    }
+
     public static Constructor<?> getSuitbaleConstructor(Class<?> clazz){
         Constructor<?>[] cons = clazz.getConstructors();
-        if (cons.length == 0){
-            cons = clazz.getConstructors();
+        if (cons.length != 0){
+            cons = clazz.getDeclaredConstructors();
             if (cons.length != 1){
                 throw new RuntimeException("more than one constructor found in class" + clazz.getName());
             }

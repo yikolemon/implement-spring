@@ -4,6 +4,10 @@ import com.yikolemon.ioc.annotation.*;
 import com.yikolemon.ioc.resource.ResourceResolver;
 import com.yikolemon.ioc.util.ClassUtil;
 
+import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -99,26 +103,76 @@ public class ResourceScanner {
                     .order(getOrder(clazz))
                     .primary(clazz.isAnnotationPresent(Primary.class))
 //                    .instance()
-                    .initMethod()
-                    .initMethodName()
-                    .destoryMethod()
-                    .destroyMethodName()
-                    .factoryName()
-                    .factoryMethod()
+                    .initMethod(ClassUtil.findAnnoMethod(clazz, PostConstruct.class))
+                    .initMethodName(null)
+                    .destoryMethod(ClassUtil.findAnnoMethod(clazz, PreDestroy.class))
+                    .destroyMethodName(null)
+//                    .factoryName()
+//                    .factoryMethod()
                     .build();
             map.put(beanName, beanDefinition);
             //注入Configuration下的@Bean
             Configuration configAnno = ClassUtil.getAnnotation(clazz, Configuration.class);
             if (configAnno != null){
                 //查找@Bean方法,@Bean通过方法名或注解val进行匹配, 不通过返回类型进行匹配
+                scanFactoryMethods(beanName, clazz, map);
             }
         }
         return map;
     }
 
+    void scanFactoryMethods(String factoryBeanName, Class<?> clazz, Map<String, BeanDefinition> defs) {
+        for (Method method : clazz.getDeclaredMethods()) {
+            Bean bean = method.getAnnotation(Bean.class);
+            if (bean != null) {
+                int mod = method.getModifiers();
+                if (Modifier.isAbstract(mod)) {
+                    throw new RuntimeException("@Bean method " + clazz.getName() + "." + method.getName() + " must not be abstract.");
+                }
+                if (Modifier.isFinal(mod)) {
+                    throw new RuntimeException("@Bean method " + clazz.getName() + "." + method.getName() + " must not be final.");
+                }
+                if (Modifier.isPrivate(mod)) {
+                    throw new RuntimeException("@Bean method " + clazz.getName() + "." + method.getName() + " must not be private.");
+                }
+                Class<?> beanClass = method.getReturnType();
+                if (beanClass.isPrimitive()) {
+                    throw new RuntimeException("@Bean method " + clazz.getName() + "." + method.getName() + " must not return primitive type.");
+                }
+                if (beanClass == void.class || beanClass == Void.class) {
+                    throw new RuntimeException("@Bean method " + clazz.getName() + "." + method.getName() + " must not return void.");
+                }
+                BeanDefinition beanDefinition = BeanDefinition.builder()
+                        .name(ClassUtil.getBeanName(method))
+                        .beanClass(beanClass)
+                        .factoryMethod(method)
+                        .factoryName(factoryBeanName)
+                        .order(getOrder(method))
+                        .primary(method.isAnnotationPresent(Primary.class))
+                        .initMethod(null)
+                        .initMethodName(bean.initMethod().isEmpty() ? null : bean.initMethod())
+                        .destoryMethod(null)
+                        .destroyMethodName(bean.destroyMethod().isEmpty() ? null : bean.destroyMethod())
+                        .build();
+                addBeanDefinitions(defs, beanDefinition);
+            }
+        }
+    }
+
+    void addBeanDefinitions(Map<String, BeanDefinition> defs, BeanDefinition def) {
+        if (defs.put(def.getName(), def) != null) {
+            throw new RuntimeException("Duplicate bean name: " + def.getName());
+        }
+    }
+
 
     int getOrder(Class<?> clazz) {
         Order order = clazz.getAnnotation(Order.class);
+        return order == null ? Integer.MAX_VALUE : order.value();
+    }
+
+    int getOrder(Method method) {
+        Order order = method.getAnnotation(Order.class);
         return order == null ? Integer.MAX_VALUE : order.value();
     }
 
