@@ -8,10 +8,7 @@ import com.yikolemon.ioc.properties.ValueInjectException;
 import com.yikolemon.ioc.util.ClassUtil;
 import org.apache.commons.lang3.StringUtils;
 
-import java.lang.reflect.Executable;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-import java.lang.reflect.Parameter;
+import java.lang.reflect.*;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -185,6 +182,42 @@ public class AnnotationConfigApplicationContext {
         //TODO
         return false;
     }
+
+    private static void injectBean(BeanDefinition def){
+        Object instance = def.getInstance();
+        injectProperties(def, def.getBeanClass(), def.getInstance());
+    }
+
+    private static void injectProperties(BeanDefinition def, Class<?> clazz, Object instance){
+        for (Field f : clazz.getDeclaredFields()) {
+            tryInjectProperties(def, def.beanClass, def.getInstance(), f);
+        }
+        for (Method m : clazz.getDeclaredMethods()) {
+            tryInjectProperties(def, def.beanClass, def.getInstance(), m);
+        }
+        Class<?> superclass = clazz.getSuperclass();
+        if (superclass != null){
+            injectProperties(def, superclass, instance);
+        }
+    }
+
+    private static void tryInjectProperties(BeanDefinition def, Class<?> clazz, Object instance,
+                                            AccessibleObject acc){
+        Value valAnno = acc.getAnnotation(Value.class);
+        Autowired autowiredAnno = acc.getAnnotation(Autowired.class);
+
+        //不需要注入
+        if (valAnno == null && autowiredAnno == null){
+            return;
+        }
+        if (acc instanceof Field){
+            Field f = (Field) acc;
+
+        }
+
+    }
+
+
 
 
 }
