@@ -1,7 +1,7 @@
 package com.yikolemon.ioc.context;
 
 import com.yikolemon.ioc.annotation.*;
-import com.yikolemon.ioc.resource.ResourceResolver;
+import com.yikolemon.ioc.resource.ClassResourceResolver;
 import com.yikolemon.ioc.util.ClassUtil;
 
 import javax.annotation.PostConstruct;
@@ -17,7 +17,7 @@ import java.util.stream.Collectors;
  **/
 public class ResourceScanner {
 
-    private static final ResourceResolver RESOURCE_RESOLVER = new ResourceResolver("com.yikolemon");
+    private static final ClassResourceResolver RESOURCE_RESOLVER = new ClassResourceResolver("com.yikolemon");
 
     /**
      *
@@ -35,7 +35,7 @@ public class ResourceScanner {
         List<String> packageList = getScanPackage(configClazz);
         HashSet<String> beanNameSet = new HashSet<>();
         for (String pkg : packageList) {
-            ResourceResolver resourceResolver = new ResourceResolver(pkg);
+            ClassResourceResolver resourceResolver = new ClassResourceResolver(pkg);
             List<String> beanNameList = resourceResolver.scan(resource -> {
                 String name = resource.getName();
                 if (name.endsWith(".class")) {
@@ -80,7 +80,7 @@ public class ResourceScanner {
         }
     }
 
-    private Map<String, BeanDefinition> createBeanDefinitions(Set<String> classNameSet){
+    public Map<String, BeanDefinition> createBeanDefinitions(Set<String> classNameSet) throws NoSuchMethodException {
         HashMap<String, BeanDefinition> map = new HashMap<>();
         for (String className : classNameSet) {
             //获取class
@@ -109,6 +109,7 @@ public class ResourceScanner {
                     .destroyMethodName(null)
 //                    .factoryName()
 //                    .factoryMethod()
+                    .configurationDefinition(Boolean.FALSE)
                     .build();
             map.put(beanName, beanDefinition);
             //注入Configuration下的@Bean
@@ -153,6 +154,7 @@ public class ResourceScanner {
                         .initMethodName(bean.initMethod().isEmpty() ? null : bean.initMethod())
                         .destoryMethod(null)
                         .destroyMethodName(bean.destroyMethod().isEmpty() ? null : bean.destroyMethod())
+                        .configurationDefinition(Boolean.TRUE)
                         .build();
                 addBeanDefinitions(defs, beanDefinition);
             }

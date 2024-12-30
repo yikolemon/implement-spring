@@ -6,7 +6,9 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -65,19 +67,43 @@ public class ClassUtil {
         return anno;
     }
 
+    public static <T extends Annotation> T getAnnotation(Parameter parameter, Class<T> annoClazz){
+        Annotation[] annotations = parameter.getAnnotations();
+        for (Annotation anno : annotations) {
+            if (annoClazz.isInstance(anno)){
+                return (T)anno;
+            }
+        }
+        return null;
+    }
+
     /**
      *  /TODO 忽略嵌套@Component的情况
      * @param clazz 目标类
      * @return bean名称
      */
-    public static String getBeanName(Class<?> clazz) {
+    public static String getBeanName(Class<?> clazz){
         Component anno = clazz.getAnnotation(Component.class);
-        String name;
-        if (anno == null || StringUtils.isEmpty(anno.value())){
+        String name = null;
+        if (anno != null){
+            if (!StringUtils.isEmpty(anno.value())){
+                return anno.value();
+            }
+        }else{
+            for (Annotation itemAnno : clazz.getAnnotations()){
+                if (getAnnotation(itemAnno.annotationType(), Component.class) != null){
+                    try {
+                        name = (String) itemAnno.annotationType().getMethod("value")
+                                .invoke(itemAnno);
+                    } catch (Exception e) {
+                        throw new RuntimeException("cannot get @Component annotation value");
+                    }
+                }
+            }
+        }
+        if (StringUtils.isEmpty(name)){
             String simpleName = clazz.getSimpleName();
             name = Character.toLowerCase(simpleName.charAt(0)) + simpleName.substring(1);
-        }else{
-            name = anno.value();
         }
         return name;
     }
@@ -93,7 +119,7 @@ public class ClassUtil {
 
     public static Constructor<?> getSuitbaleConstructor(Class<?> clazz){
         Constructor<?>[] cons = clazz.getConstructors();
-        if (cons.length != 0){
+        if (cons.length == 0){
             cons = clazz.getDeclaredConstructors();
             if (cons.length != 1){
                 throw new RuntimeException("more than one constructor found in class" + clazz.getName());

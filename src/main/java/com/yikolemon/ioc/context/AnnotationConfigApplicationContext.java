@@ -1,11 +1,18 @@
 package com.yikolemon.ioc.context;
 
 import com.sun.istack.internal.Nullable;
+import com.yikolemon.ioc.annotation.Autowired;
+import com.yikolemon.ioc.annotation.Value;
 import com.yikolemon.ioc.properties.PropertyResolver;
+import com.yikolemon.ioc.properties.ValueInjectException;
+import com.yikolemon.ioc.util.ClassUtil;
+import org.apache.commons.lang3.StringUtils;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.lang.reflect.Executable;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Parameter;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -20,19 +27,94 @@ public class AnnotationConfigApplicationContext {
 
     Set<String> creatingBeanNames;
 
-    public Object createBeanAsEarlySingleton(BeanDefinition def){
+    public Object createBeanAsEarlySingleton(BeanDefinition def) throws ValueInjectException {
         if (!this.creatingBeanNames.add(def.getName())){
             //检测到重复创建Bean导致的循环依赖
             throw new RuntimeException("repeat create error");
         }
-        //
+        //获取创建Bean的构造方法或者工厂方法
+        Executable createFun = def.getFactoryName() == null ? def.getConstructor() : def.getFactoryMethod();
+        Parameter[] parameters = createFun.getParameters();
+        Object[] args = new Object[parameters.length];
+        boolean isConfiguration = isConfigurationDefinition(def);
+        for (int i = 0; i < parameters.length; i++) {
+            Value value = ClassUtil.getAnnotation(parameters[i], Value.class);
+            Autowired autowired = ClassUtil.getAnnotation(parameters[i], Autowired.class);
+            if (isConfiguration && autowired != null){
+                throw new RuntimeException("cannot specify @Autowired when creating @Configuration Bean");
+            }
+            //参数需要@Value或者@Autowired两者之一
+            if (value != null && autowired != null){
+                throw new RuntimeException("cannot specify both @Autowired and @Value at same time");
+            }
+            if (value == null && autowired == null) {
+                throw new RuntimeException("must specify @Autowired or @Value");
+            }
+            //参数类型
+            Class<?> type = parameters[i].getType();
+            //注入@Value
+            if (value != null){
+                args[i] = PropertyResolver.getRequiredProperty(value.value(), type);
+            }
+            if (autowired != null){
+                String name = def.getName();
+                BeanDefinition dependencyDef = StringUtils.isEmpty(name) ? findPrimaryBeanDefinition(type) :
+                        findBeanDefinition(name, type);
+                Object dependencyInstance = dependencyDef.getInstance();
+                if (dependencyInstance == null){
+                    //依赖类需要初始化
+                    dependencyInstance = createBeanAsEarlySingleton(dependencyDef);
+                }
+                args[i] = dependencyInstance;
+            }
+        }
+        //创建实例
+        Object instance;
+        if (def.getConstructor() != null){
+            //构造方法
+            try {
+                instance = def.getConstructor().newInstance(args);
+            } catch (InstantiationException | IllegalAccessException | InvocationTargetException e) {
+                throw new RuntimeException(String.format("Exception when creating bean '%s : '%s'",
+                        def.getName(), e.getMessage()));
+            }
+        }else{
+            Object bean = getBean(def.getFactoryName());
+            //使用工厂方法构建
+            Method factoryMethod = def.getFactoryMethod();
+            try {
+                instance =  factoryMethod.invoke(bean, args);
+            } catch (Exception e) {
+                throw new RuntimeException("invoke factory method creating bean error");
+            }
+        }
+        //TODO BeanPostProcessor注入
+        return instance;
     }
 
 
-    public AnnotationConfigApplicationContext(Class<?> configClazz, PropertyResolver propertyResolver) {
+    public AnnotationConfigApplicationContext(Class<?> configClazz, PropertyResolver propertyResolver) throws NoSuchMethodException, ValueInjectException {
         ResourceScanner resourceScanner = new ResourceScanner();
         Set<String> clazzNameSet = resourceScanner.scanForClazzName(configClazz);
-
+        nameToBeans = resourceScanner.createBeanDefinitions(clazzNameSet);
+        //创建中集合
+        this.creatingBeanNames = new HashSet<>();
+        //创建@Configuration类型的Bean
+        List<BeanDefinition> configBeanDefList = nameToBeans.values().stream()
+                .filter(BeanDefinition::getConfigurationDefinition)
+                .collect(Collectors.toList());
+        for (BeanDefinition def : configBeanDefList) {
+            createBeanAsEarlySingleton(def);
+        }
+        //创建剩余的Bean
+        List<BeanDefinition> restDefList = nameToBeans.values().stream()
+                .filter(def -> def.getInstance() == null).collect(Collectors.toList());
+        for (BeanDefinition def : restDefList) {
+            createBeanAsEarlySingleton(def);
+        }
+        nameToBeans.values().forEach(definition -> {
+            //通过definition注入bean
+        });
 
     }
 
@@ -49,6 +131,27 @@ public class AnnotationConfigApplicationContext {
                 .collect(Collectors.toList());
     }
 
+
+    private Object getBean(String name){
+        BeanDefinition beanDefinition = nameToBeans.get(name);
+        Objects.requireNonNull(beanDefinition);
+        Object instance = beanDefinition.getInstance();
+        Objects.requireNonNull(instance);
+        return instance;
+    }
+
+    @Nullable
+    public BeanDefinition findBeanDefinition(String name, Class<?> clazz){
+        BeanDefinition beanDefinition = findBeanDefinition(name);
+        if (beanDefinition == null){
+            return null;
+        }
+        if (!clazz.isAssignableFrom(beanDefinition.getBeanClass())){
+            throw new RuntimeException("error bean class type");
+        }
+        return beanDefinition;
+    }
+
     @Nullable
     public BeanDefinition findPrimaryBeanDefinition(Class<?> clazz){
         List<BeanDefinition> beanDefinitionList = findBeanDefinition(clazz);
@@ -60,7 +163,7 @@ public class AnnotationConfigApplicationContext {
         }
         //遍历查找primary
         List<BeanDefinition> primaryBeanDefinitionListen = beanDefinitionList.stream()
-                .filter(BeanDefinition::isPrimary)
+                .filter(BeanDefinition::getPrimary)
                 .collect(Collectors.toList());
         if (primaryBeanDefinitionListen.size() == 0){
             //抛出异常
@@ -73,6 +176,15 @@ public class AnnotationConfigApplicationContext {
         }
     }
 
+
+    private static boolean isConfigurationDefinition(BeanDefinition def){
+        return def.getConfigurationDefinition();
+    }
+
+    private static boolean isBeanPostProcessorDefinition(BeanDefinition def){
+        //TODO
+        return false;
+    }
 
 
 }

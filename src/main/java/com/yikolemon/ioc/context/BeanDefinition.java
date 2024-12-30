@@ -36,7 +36,7 @@ public class BeanDefinition {
     //顺序
     int order;
 
-    boolean primary;
+    Boolean primary;
 
     String initMethodName;
 
@@ -46,5 +46,6 @@ public class BeanDefinition {
 
     Method destoryMethod;
 
+    Boolean configurationDefinition;
 
 }

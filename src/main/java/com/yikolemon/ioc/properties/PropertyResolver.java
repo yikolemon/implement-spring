@@ -55,6 +55,13 @@ public class PropertyResolver {
         CONVERTERS.put(ZoneId.class, ZoneId::of);
     }
 
+
+    public static <T> T getRequiredProperty(String key, Class<T> tClass) throws ValueInjectException{
+        T property = getProperty(key, tClass);
+        Objects.requireNonNull(property);
+        return property;
+    }
+
     public static <T> T getProperty(String key, Class<T> tClass) throws ValueInjectException {
          String val = getProperty(key);
          return convert(val, tClass);
