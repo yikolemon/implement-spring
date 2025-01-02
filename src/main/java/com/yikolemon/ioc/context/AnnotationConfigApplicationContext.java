@@ -8,6 +8,7 @@ import com.yikolemon.ioc.properties.ValueInjectException;
 import com.yikolemon.ioc.util.ClassUtil;
 import org.apache.commons.lang3.StringUtils;
 
+import java.io.Serializable;
 import java.lang.reflect.*;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -16,7 +17,8 @@ import java.util.stream.Collectors;
  * @author duanfuqiang
  * @date 2024/12/26
  **/
-public class AnnotationConfigApplicationContext {
+public class AnnotationConfigApplicationContext implements Serializable {
+    private static final long serialVersionUID = -7780096685700083702L;
 
     Map<String, BeanDefinition> nameToBeans;
 
@@ -94,6 +96,24 @@ public class AnnotationConfigApplicationContext {
         ResourceScanner resourceScanner = new ResourceScanner();
         Set<String> clazzNameSet = resourceScanner.scanForClazzName(configClazz);
         nameToBeans = resourceScanner.createBeanDefinitions(clazzNameSet);
+        //创建bean
+        createBeans();
+        //注入bean
+        injectBeans();
+    }
+
+    private void injectBeans(){
+        nameToBeans.values().forEach(definition -> {
+            //通过definition注入bean
+            try {
+                injectBean(definition);
+            } catch (ValueInjectException | IllegalAccessException | InvocationTargetException  e) {
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
+    private void createBeans() throws ValueInjectException {
         //创建中集合
         this.creatingBeanNames = new HashSet<>();
         //创建@Configuration类型的Bean
@@ -109,10 +129,6 @@ public class AnnotationConfigApplicationContext {
         for (BeanDefinition def : restDefList) {
             createBeanAsEarlySingleton(def);
         }
-        nameToBeans.values().forEach(definition -> {
-            //通过definition注入bean
-        });
-
     }
 
     @Nullable
@@ -135,6 +151,16 @@ public class AnnotationConfigApplicationContext {
         Object instance = beanDefinition.getInstance();
         Objects.requireNonNull(instance);
         return instance;
+    }
+
+    private Object getBean(Class<?> type){
+        BeanDefinition beanDefinition = findPrimaryBeanDefinition(type);
+        return beanDefinition.getInstance();
+    }
+
+    private Object getBean(String name, Class<?> type){
+        BeanDefinition beanDefinition = findBeanDefinition(name, type);
+        return beanDefinition.getInstance();
     }
 
     @Nullable
@@ -183,17 +209,17 @@ public class AnnotationConfigApplicationContext {
         return false;
     }
 
-    private static void injectBean(BeanDefinition def){
+    private void injectBean(BeanDefinition def) throws ValueInjectException, InvocationTargetException, IllegalAccessException {
         Object instance = def.getInstance();
-        injectProperties(def, def.getBeanClass(), def.getInstance());
+        injectProperties(def, def.getBeanClass(), instance);
     }
 
-    private static void injectProperties(BeanDefinition def, Class<?> clazz, Object instance){
+    private void injectProperties(BeanDefinition def, Class<?> clazz, Object instance) throws ValueInjectException, InvocationTargetException, IllegalAccessException {
         for (Field f : clazz.getDeclaredFields()) {
-            tryInjectProperties(def, def.beanClass, def.getInstance(), f);
+            tryInjectProperties(def, def.beanClass, instance, f);
         }
         for (Method m : clazz.getDeclaredMethods()) {
-            tryInjectProperties(def, def.beanClass, def.getInstance(), m);
+            tryInjectProperties(def, def.beanClass, instance, m);
         }
         Class<?> superclass = clazz.getSuperclass();
         if (superclass != null){
@@ -201,8 +227,8 @@ public class AnnotationConfigApplicationContext {
         }
     }
 
-    private static void tryInjectProperties(BeanDefinition def, Class<?> clazz, Object instance,
-                                            AccessibleObject acc){
+    private void tryInjectProperties(BeanDefinition def, Class<?> clazz, Object instance,
+                                            AccessibleObject acc) throws ValueInjectException, IllegalAccessException, InvocationTargetException {
         Value valAnno = acc.getAnnotation(Value.class);
         Autowired autowiredAnno = acc.getAnnotation(Autowired.class);
 
@@ -210,14 +236,76 @@ public class AnnotationConfigApplicationContext {
         if (valAnno == null && autowiredAnno == null){
             return;
         }
+        Field field = null;
         if (acc instanceof Field){
             Field f = (Field) acc;
-
+            checkFieldOrMethod(f);
+            f.setAccessible(true);
+            field = f;
+        }
+        Method method = null;
+        if (acc instanceof Method){
+            Method m = (Method) acc;
+            checkFieldOrMethod(m);
+            if (m.getParameters().length < 1){
+                throw new RuntimeException(String.format("Cannot inject a non-setter method %s for bean '%s': %s",
+                        m.getName(), def.getName(), def.getBeanClass().getName()));
+            }
+            m.setAccessible(true);
+            method = m;
         }
 
+        String accessibleName = field != null ? field.getName() : method.getName();
+        Class<?> accessibleType = field != null ? field.getType() : method.getParameterTypes()[0];
+        //同时存在两个注解
+        if (valAnno != null && autowiredAnno != null){
+            throw new RuntimeException(String.format("Cannot specify both @Autowired and @Value when inject %s.%s for bean '%s':'%s'",
+                    clazz.getSimpleName(), accessibleName, def.getName(), def.getBeanClass().getName()));
+        }
+
+        //@Value注入
+        if (valAnno != null){
+            Object property = PropertyResolver.getRequiredProperty(valAnno.value(), accessibleType);
+            if (field != null){
+                //字段注入
+                field.set(instance, property);
+            }
+            if (method != null){
+                method.invoke(instance, property);
+            }
+        }
+
+        if (autowiredAnno != null){
+            String name = autowiredAnno.name();
+            boolean required = autowiredAnno.value();
+            Object depends = name.isEmpty() ? getBean(accessibleType) : getBean(name, accessibleType);
+            if (required && depends == null){
+                throw new RuntimeException("dependency bean not found when inject");
+            }
+            if (depends != null){
+                if (field != null){
+                    field.set(instance, depends);
+                }
+            }
+            if (method != null){
+                method.invoke(instance, depends);
+            }
+        }
     }
 
-
-
+    private static void checkFieldOrMethod(Member m){
+        int mod = m.getModifiers();
+        if (Modifier.isStatic(mod)){
+            throw new RuntimeException("cannot inject stastic field" + m);
+        }
+        if (Modifier.isFinal(mod)){
+            if (m instanceof Field){
+                throw new RuntimeException("cannot inject final field" + m);
+            }
+            if (m instanceof Method){
+                System.out.println("inject final method should be careful because it is not called on target bean when bean is proxied and may cause NullPointerException.");
+            }
+        }
+    }
 
 }
